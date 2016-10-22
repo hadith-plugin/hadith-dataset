@@ -1,0 +1,15 @@
+{
+  "name": "nodejs-shamela-scrapper",
+  "version": "1.0.0",
+  "description": "",
+  "main": "scrapper.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "",
+  "license": "ISC",
+  "dependencies-dev": {
+    "punycode": "^2.0.0",
+    "request": "^2.75.0"
+  }
+}
