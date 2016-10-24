@@ -1,6 +1,11 @@
 /**
  * El-Shamela Scrapper.
  *
+ * @author     Mahmoud Mouneer <m.m.mouneer@gmail.com>
+ * @copyright  Hadith Plugin Organization.
+ * @license    https://opensource.org/licenses/MIT   MIT License
+ * @version    0.1
+ *
  * An ES6 NodeJS script to scrapp El-Shamela books.
  *
  * To run the script, make sure you have nodejs installed and updated so that no
