@@ -11,5 +11,8 @@
   "devDependencies": {
     "punycode": "^2.0.0",
     "request": "^2.75.0"
+  },
+  "dependencies": {
+    "jsdom": "^9.8.3"
   }
 }

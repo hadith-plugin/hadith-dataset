@@ -18,7 +18,12 @@
  *   		$ npm install
  *
  * 		- Run script
- *   		$ node processor.js {directory}
+ *   		$ node processor.js {bookId} {directory}
+ *
+ * @param {Number} bookId           Book id that is needed to be scrapped.
+ *                                  Simply, find it through El-Shamela web site
+ *                                  from URL:
+ *                                  http://shamela.ws/browse.php/book-{bookId}
  *
  * @param  {String} directory       directory that has the scrapped files to be
  *                                  processed.
@@ -26,7 +31,7 @@
  * @return A new directory 'processed/{directory}' will be created at same path
  * of the passed directory argument.
  *
- * Categorization Theory:
+ * Categorization Theory (Deprecated):
  * 	 - Scrapped parts are in order and no files missed.
  *   - Any book or chapter has 'hadith' attr with null value.
  *   - A book can be distinguished if its part is followed directly with
@@ -38,6 +43,9 @@
  *   - If chapter/book is defined at many parts, there is a common att between
  *   	 those parts called 'caption_id' and the first part is considered to be the
  *   	 chapter/book.
+ *
+ * Categorization Theory now Depends on the navigation bar at every book when
+ * you read it online.
  *
  * Note : Sync versions of some methods was used for two reasons:
  *  - The logic depends on the order of files
@@ -51,11 +59,15 @@
 const fs = require('fs');
 const path = require('path');
 const process = require('process');
+const request = require('request');
+const jsdom = require('jsdom');
 
 /* ******************************** Preparations ******************************/
+const shamelaAPI = 'http://shamela.ws/browse.php';
+const bookId = process.argv[2];
 
 // Scrapped directory passed as a command line argument.
-const directory = process.argv[2];
+const directory = process.argv[3];
 if (!directory) {
   console.error('Please pass source direcory as an argument');
   process.exit(1);
@@ -69,6 +81,23 @@ const directoryAbs = path.resolve(directory);
 const tashkeelContent = fs.readFileSync(`${__dirname}/tashkeel.txt`, 'utf8');
 const tashkeel = tashkeelContent.toString().split('\n').join('');
 
+// Create output directories
+const inputSplits = directory.split('/');
+
+// If source directory is passed nested.
+const SplitLen = inputSplits.length;
+const dirName = SplitLen ? inputSplits[SplitLen-1] : inputSplits;
+
+// @TODO Allow this string to be passed (optional) as command line arg.
+const outputDir = `processed/${dirName}`;
+const outputDirAbs = path.resolve(outputDir);
+
+// Maintain being nested.
+let parentDir = '';
+outputDir.split('/').forEach(dir => {
+  parentDir += `${dir}/`;
+  createDirIfNotExist(parentDir);
+});
 /* ****************************** Helper Methods ******************************/
 /**
  * Read part contents.
@@ -79,11 +108,25 @@ const tashkeel = tashkeelContent.toString().split('\n').join('');
  *
  * @return {Object}
  */
-function readPart(partNo) {
+function readPart(partNo, output = false) {
   // Absolute path for the file.
-  const partPath = `${directoryAbs}/${partNo}`;
+  const directory = output ? outputDirAbs : directoryAbs;
+  const partPath = `${directory}/${partNo}`;
   const partStr = fs.readFileSync(partPath, 'utf8');
-  const partJson = JSON.parse(partStr);
+  return JSON.parse(partStr);
+}
+
+/**
+ * Process part contents.
+ *
+ * @method processPart
+ *
+ * @param  {Number} partNo
+ *
+ * @return {Object}
+ */
+function processPart(partNo) {
+  const partJson = readPart(partNo);
 
   // Sanitize content from HTML tags and other unwanted strings.
   partJson.content = partJson.content.replace(/<(?:.|\n)*?>| &quot;|\d+ - /gm, ' ');
@@ -112,88 +155,192 @@ function createDirIfNotExist(pathRel) {
     }
 }
 
+/**
+ * Convert NodeList to Array
+ *
+ * @method nodeListToArr
+ *
+ * @param  {NodeList} arrAlike
+ * @param  {Object}   window
+ *
+ * @return {Array}
+ */
+function nodeListToArr(arrAlike, window) {
+  // Error Handling
+  if (arrAlike.constructor !== window.NodeList) {
+    throw new Error('"nodeListToArr" expects arrAlike parameter to be NodeList');
+  }
+
+  return Array.prototype.slice.call(arrAlike);
+}
+
+/**
+ * Get Chapter and Book related to a givin part.
+ *
+ * @method getChapterBook
+ *
+ * @param  {Array}    books
+ * @param  {Number}   part
+ *
+ * @return {Object}
+ */
+function getChapterBook(books, partNo) {
+  partNo = parseInt(partNo);
+  let book = null;
+  let chapter = null;
+  books.some(curBook => {
+    if (curBook.page > partNo) {
+      return;
+    }
+
+    return curBook.chapters.some(curChapter => {
+      if (curChapter.page > partNo) {
+        return;
+      }
+
+      book = curBook;
+      chapter = curChapter;
+      return true;
+    });
+  });
+
+  return {book, chapter};
+}
+
+/**
+ * A callback for Array.prototype.sort() to sort chapters/books desc.
+ *
+ * @method sortCallback
+ *
+ * @param  {Object}   a
+ * @param  {Object}   b
+ *
+ * @return {Number}
+ */
+function sortCallback(a, b) {
+  if (parseInt(a.page) < parseInt(b.page)) {
+    return 1;
+  }
+
+  if (parseInt(a.page) > parseInt(b.page)) {
+    return -1;
+  }
+
+  return 0;
+}
+
 /* ******************************** Processing ********************************/
 
-// Read directory contents.
-fs.readdir(directoryAbs, (err, files) => {
+/**
+ * Initialization Categorization.
+ *
+ * @method initCategorization
+ *
+ * @param  {Array}   searchReference
+ *
+ * @return {void}
+ */
+function initCategorization(searchReference) {
+  // Read directory contents.
+  return fs.readdir(directoryAbs, (err, files) => {
+    if (err) {
+      console.error('Could not list the directory.', err);
+      process.exit(1);
+    }
+
+    // Iterate through all the files in the directory.
+    let i = 1;
+    for (; i <= files.length; i++) {
+      let part = processPart(i);
+
+      // Absolute path for the part.
+      const partPath = `${outputDirAbs}/${i}`;
+
+      // Check if part is a hadith. (part.hadith < 0 to cover special case at elbo5ari)
+      if (!part.hadith || (part.hadith && part.hadith < 0)) {
+        const contents = JSON.stringify(part);
+        fs.writeFileSync(partPath, contents, 'utf8');
+        continue;
+      }
+
+      const partCatInfo = getChapterBook(searchReference, part.id);
+      part.book = readPart(partCatInfo.book.page, true);
+      part.book.sourceName = partCatInfo.book.name;
+
+      // Handle very special case that chapter and hadith are in the same part
+      // happened at Sahih Moslim book
+      if (partCatInfo.chapter.page === part.id) {
+        let contents = JSON.stringify(part);
+        fs.writeFileSync(partPath, contents, 'utf8');
+        part.chapter = readPart(partCatInfo.chapter.page, true);
+        part.chapter.sourceName = partCatInfo.chapter.name;
+        contents = JSON.stringify(part);
+        fs.writeFileSync(partPath, contents, 'utf8');
+      } else {
+        part.chapter = readPart(partCatInfo.chapter.page, true);
+        part.chapter.sourceName = partCatInfo.chapter.name;
+        const contents = JSON.stringify(part);
+        fs.writeFileSync(partPath, contents, 'utf8');
+      }
+    }
+  });
+}
+// Scrapping book and get categorization searchReference.
+request.get(`${shamelaAPI}/book-${bookId}`, (err, res, body) => {
   if (err) {
-    console.error('Could not list the directory.', err);
+    console.error(`Could not get book`, err);
     process.exit(1);
   }
 
-  // Create output directories
-  const inputSplits = directory.split('/');
+  if (res.statusCode === 200) {
+    jsdom.env(body, function (err, window) {
+      let books = window.document.body.querySelectorAll('.treeview > li');
+      books = nodeListToArr(books, window);
+      let searchReference = [];
+      let i = 0;
+      (function processBook(book) {
+        if (!book) {
+          // End of scrapping navigation bar. Lets sort our searchReference desc
+          // to search inside it easily.
+          searchReference = searchReference.sort(sortCallback);
+          searchReference.forEach(curBook => {
+            curBook.chapters = curBook.chapters.sort(sortCallback);
+          });
 
-  // If source directory is passed nested.
-  const SplitLen = inputSplits.length;
-  const dirName = SplitLen ? inputSplits[SplitLen-1] : inputSplits;
+          // Read directory contents.
+          return initCategorization(searchReference);
+        }
 
-  // @TODO Allow this string to be passed (optional) as command line arg.
-  const outputDir = `processed/${dirName}`;
-  const outputDirAbs = path.resolve(outputDir);
+        const info = book.querySelector('a');
+        const bookPage = info.href.match(/(\d+)$/)[1];
+        const onclick = book.querySelector('span').getAttribute('onclick');
+        if (!onclick) {
+          // Book without chapters like book introduction
+          return processBook(books[++i]);
+        }
 
-  // Maintain being nested.
-  let parentDir = '';
-  outputDir.split('/').forEach(dir => {
-    parentDir += `${dir}/`;
-    createDirIfNotExist(parentDir);
-  });
+        const chapterParam = onclick.match(/h\((\d+).*/)[1];
+        request.get(`${shamelaAPI}/book/lazytree/${bookId}/${chapterParam}/echo`, {timeout: 150000}, (err, res, body) => {
+          if (err) {
+            console.error(`Could not get chapters`, err);
+            process.exit(1);
+          }
 
-  // It's Used to cache a part that will be used in the future.
-  let nextPart = {};
-
-  // Save current book and chapter to assign them to the hadith parts.
-  let book = {};
-  let chapter = {};
-
-  // If book/chapter has many definition parts, keep tracking the first part.
-  let firstPart = {};
-
-  // Iterate through all the files in the directory.
-  let i = 1;
-  for (; i <= files.length; i++) {
-    // Use nextPart if was cached
-    const part = nextPart.id ? nextPart : readPart(i);
-
-    // Make sure that is used next time and only once, so empty it.
-    nextPart = {};
-
-    // Absolute path for the part.
-    const partPath = `${outputDirAbs}/${i}`;
-
-    // Check if part is a hadith.
-    if (part.hadith) {
-      part.book = book;
-      part.chapter = chapter;
-      const contents = JSON.stringify(part);
-      fs.writeFileSync(partPath, contents, 'utf8');
-      firstPart = {};
-      continue;
-    }
-
-    const contents = JSON.stringify(part);
-    fs.writeFileSync(partPath, contents, 'utf8');
-
-    // cache this part and make use of it in the future.
-    nextPart = readPart(i+1);
-
-    // Check if next part is not a hadith.
-    if (!nextPart.hadith) {
-      if (nextPart.caption_id === part.caption_id) {
-        firstPart = part;
-      } else {
-        // else, this is a book.
-        // If it has many definitions take the first tracked, else, this is one
-        // part definition book.
-        book = firstPart.id ? firstPart : part;
-        console.log(`Book: ${book.content}`);
-        continue;
-      }
-    }
-
-    // If it has many definitions take the first tracked, else, this is one
-    // part definition chapter.
-    chapter = firstPart.id ? firstPart : part;
-    console.log(`  - chapter: ${chapter.content}`);
+          if (res.statusCode === 200) {
+            jsdom.env(body, function (err, window) {
+              const finalBook = {page: bookPage, name: info.text, chapters: []};
+              searchReference.push(finalBook);
+              let chapters = window.document.body.querySelectorAll('li > a');
+              chapters = nodeListToArr(chapters, window);
+              chapters.forEach(chapter => {
+                const chapterPage = chapter.href.match(/(\d+)$/)[1];
+                finalBook.chapters.push({name: chapter.text, page: chapterPage});
+              });
+              processBook(books[++i]);
+            });
+          }
+        });
+      })(books[i]);
+    });
   }
 });

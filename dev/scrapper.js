@@ -18,12 +18,12 @@
  * 		- Run script
  *   		$ node scrapper.js {bookId} {partId}
  *
- * @param {Number} bookId   Book id that is needed to be scrapped.
- *                          Simply, find it through El-Shamela web site
- *                          from URL:
- *                          http://shamela.ws/browse.php/book-{bookId}/page-{id}
+ * @param {Number} bookId       Book id that is needed to be scrapped.
+ *                              Simply, find it through El-Shamela web site
+ *                              from URL:
+ *                              http://shamela.ws/browse.php/book-{bookId}
  *
- * @param {Number} partId   Part id to start from.
+ * @param {Number} partId       Part id to start from.
  *
  * @return A new directory 'source/{bookId}' will be created at same path of the
  * passed directory argument.
