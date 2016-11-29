@@ -28,10 +28,14 @@
  * @param  {String} directory       directory that has the scrapped files to be
  *                                  processed.
  *
+ * @param  {Boolean} hasAuth        Does Hadith have Authenticity? Usually true
+ *                                  If book is not bokhari or moslim.
+ *
  * @return A new directory 'processed/{directory}' will be created at same path
  * of the passed directory argument.
  *
- * Categorization Theory (Deprecated):
+ * Some facts about scrapped parts to let us understand and process them to
+ * match our needs:
  * 	 - Scrapped parts are in order and no files missed.
  *   - Any book or chapter has 'hadith' attr with null value.
  *   - A book can be distinguished if its part is followed directly with
@@ -73,6 +77,13 @@ if (!directory) {
   process.exit(1);
 }
 
+/**
+ * does Hadith have Authenticity?
+ *
+ * @type {Boolean}
+ */
+const hasAuth = process.argv[4];
+
 // Absolute path for the directory.
 const directoryAbs = path.resolve(directory);
 
@@ -91,6 +102,7 @@ const dirName = SplitLen ? inputSplits[SplitLen-1] : inputSplits;
 // @TODO Allow this string to be passed (optional) as command line arg.
 const outputDir = `processed/${dirName}`;
 const outputDirAbs = path.resolve(outputDir);
+console.log('Output Directory:', outputDirAbs);
 
 // Maintain being nested.
 let parentDir = '';
@@ -208,6 +220,30 @@ function getChapterBook(books, partNo) {
 }
 
 /**
+ * Get Authenticity of the Hadit.
+ *
+ * @method getHadithAuthenticity
+ *
+ * @param  {Array}    books
+ * @param  {Number}   part
+ *
+ * @return {Object}
+ */
+function getHadithAuthenticity(part) {
+  const regex = /.*\[.*\](.*)/gm;
+  let matches;
+  while ((matches = regex.exec(part.noTashkeelContent)) !== null) {
+      // This is necessary to avoid infinite loops with zero-width matches
+      if (matches.index === regex.lastIndex) {
+          regex.lastIndex++;
+      }
+
+      // The result can be accessed through the `matches`-variable.
+      return matches[1].replace(':', '').trim();
+  }
+}
+
+/**
  * A callback for Array.prototype.sort() to sort chapters/books desc.
  *
  * @method sortCallback
@@ -264,6 +300,10 @@ function initCategorization(searchReference) {
       }
 
       const partCatInfo = getChapterBook(searchReference, part.id);
+      if (hasAuth) {
+        part.authenticity = getHadithAuthenticity(part);
+      }
+
       part.book = readPart(partCatInfo.book.page, true);
       part.book.sourceName = partCatInfo.book.name;
 
@@ -285,6 +325,7 @@ function initCategorization(searchReference) {
     }
   });
 }
+
 // Scrapping book and get categorization searchReference.
 request.get(`${shamelaAPI}/book-${bookId}`, (err, res, body) => {
   if (err) {
