@@ -82,7 +82,7 @@ if (!directory) {
  *
  * @type {Boolean}
  */
-const hasAuth = process.argv[4];
+const hasAuth = process.argv[4] ? process.argv[4] : false;
 
 // Absolute path for the directory.
 const directoryAbs = path.resolve(directory);
@@ -230,6 +230,10 @@ function getChapterBook(books, partNo) {
  * @return {Object}
  */
 function getHadithAuthenticity(part) {
+  if (!hasAuth) {
+    return 'صحيح';
+  }
+
   const regex = /.*\[.*\](.*)/gm;
   let matches;
   while ((matches = regex.exec(part.noTashkeelContent)) !== null) {
@@ -300,9 +304,7 @@ function initCategorization(searchReference) {
       }
 
       const partCatInfo = getChapterBook(searchReference, part.id);
-      if (hasAuth) {
-        part.authenticity = getHadithAuthenticity(part);
-      }
+      part.authenticity = getHadithAuthenticity(part);
 
       part.book = readPart(partCatInfo.book.page, true);
       part.book.sourceName = partCatInfo.book.name;
